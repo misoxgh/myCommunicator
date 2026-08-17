@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">MyComunicator</string>
+
+    <string name="dummy_button">Dummy Button</string>
+    <string name="dummy_content">DUMMY\nCONTENT</string>
+    <string name="notification_title">TTS</string>
+    <string name="notification_message">READ SMS</string>
+    <string name="ticker_text">SMS</string>
+</resources>
