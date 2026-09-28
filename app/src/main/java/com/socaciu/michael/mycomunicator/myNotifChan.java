@@ -1,6 +1,7 @@
 package com.socaciu.michael.mycomunicator;
 
 import android.app.Application;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.os.Build;
 
@@ -18,13 +19,17 @@ public class myNotifChan extends Application {
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.o){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O){
             NotificationChannel serviceChannel = new NotificationChannel(
               CHANNEL_ID,
-              name: "ServiceChannel",
-                    NotificationManager.IMPORTANCE_DEFAULT
+              "ServiceChannel",
+              NotificationManager.IMPORTANCE_DEFAULT
             );
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
-
 }

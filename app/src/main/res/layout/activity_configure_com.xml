@@ -53,20 +53,6 @@
             android:id="@+id/start_button"
             android:layout_gravity="left|center_vertical" />
 
-        <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="TEST_1"
-            android:id="@+id/test1_button"
-            android:layout_gravity="right|center_vertical" />
-
-        <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="TEST_2"
-            android:id="@+id/test2_button"
-            android:layout_gravity="bottom" />
-
     </FrameLayout>
 
 </FrameLayout>

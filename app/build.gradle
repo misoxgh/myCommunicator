@@ -1,16 +1,23 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 26
-    buildToolsVersion '26.0.2'
+    namespace 'com.socaciu.michael.mycomunicator'
+    compileSdkVersion 33
+    buildToolsVersion '33.0.0'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 
     defaultConfig {
         applicationId "com.socaciu.michael.mycomunicator"
         minSdkVersion 26
-        targetSdkVersion 26
+        targetSdkVersion 33
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -20,9 +27,9 @@ android {
 }
 
 dependencies {
-    implementation 'com.android.support:mediarouter-v7:28.0.0'
-    compile fileTree(dir: 'libs', include: ['*.jar'])
-    testCompile 'junit:junit:4.12'
-    compile 'com.android.support:appcompat-v7:29.0.3'
-    compile 'com.android.support:support-v4:23.4.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+    implementation 'androidx.mediarouter:mediarouter:1.3.1'
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    testImplementation 'junit:junit:4.13.2'
 }

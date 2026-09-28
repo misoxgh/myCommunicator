@@ -3,8 +3,13 @@
     package="com.socaciu.michael.mycomunicator">
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".myNotifChan"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -14,29 +19,38 @@
             android:name=".ConfigureCom"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:label="@string/app_name"
-            android:theme="@style/FullscreenTheme">
+            android:theme="@style/FullscreenTheme"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".SMSReaderService" />
-        <receiver android:name=".SMSReaderServiceBootReceiver">
+
+        <service 
+            android:name=".SMSReaderService"
+            android:exported="false" />
+
+        <receiver 
+            android:name=".SMSReaderServiceBootReceiver"
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.RECEIVE_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-        <receiver android:name=".SMSNotify2">
-            <intent-filter>
+
+        <!-- Disabled by default; ConfigureCom enables it when START is pressed
+             and disables it again on STOP. -->
+        <receiver
+            android:name=".SMSNotify2"
+            android:enabled="false"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
-        <service android:name=".SMSReaderService" />
+
     </application>
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_CONTACTS"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-sdk android:minSdkVersion="5"/>
 
 </manifest>

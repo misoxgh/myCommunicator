@@ -1,59 +1,45 @@
 package com.socaciu.michael.mycomunicator;
 
+import android.Manifest;
 import android.app.Notification;
-import android.app.Notification.Builder;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
-import android.os.Process;
+import android.provider.ContactsContract;
 import android.provider.Telephony;
 import android.speech.tts.TextToSpeech;
 import android.telephony.SmsMessage;
+import android.text.TextUtils;
 import android.util.Log;
-import android.widget.Toast;
 
+import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Locale;
-import java.util.Random;
-import java.util.Timer;
-import java.util.TimerTask;
 
-import static android.app.Notification.*;
+public class SMSReaderService extends Service implements TextToSpeech.OnInitListener {
 
-/**
- * Created by Michael on 7/5/2017.
- */
+    private static final String TAG = "TTSRead";
+    private static final int FOREGROUND_ID = 1;
 
-//https://developer.android.com/guide/components/services
-public class SMSReaderService extends Service implements TextToSpeech.OnInitListener{
-
-    private static final String CLASSTAG = SMSReaderService.class.getSimpleName();
-    private static final String LOC = "LOC";
-    private static final String ZIP = "ZIP";
-    private static final long ALERT_QUIET_PERIOD = 10000;
-    private static final long ALERT_POLL_INTERVAL = 15000;
     private TextToSpeech mTTS;
+    private boolean mTtsReady = false;
+    /** Text received before the TTS engine finished initializing. */
+    private final ArrayList<String> mPending = new ArrayList<>();
 
-    // convenience for Activity classes in the same process to get current device location
-    // (so they don't have to repeat all the LocationManager and provider stuff locally)
-    // (this would NOT work across applications, only for things in the same PROCESS)
-    public static String deviceLocationZIP = "94102";
-
-    private Timer timer;
     private NotificationManager nm;
-    private Looper mServiceLooper;
-    private ServiceHandler mServiceHandler;
 
-    // Binder given to clients
     private final IBinder binder = new LocalBinder();
 
     public class LocalBinder extends Binder {
@@ -62,232 +48,179 @@ public class SMSReaderService extends Service implements TextToSpeech.OnInitList
         }
     }
 
-    // Random number generator
-    private final Random mGenerator = new Random();
-
-    // Handler that receives messages from the thread,
-    // provides the service requested in Message msg in the working thread
-    private final class ServiceHandler extends Handler {
-        public ServiceHandler(Looper looper) {
-            super(looper);
-        }
-        @Override
-        public void handleMessage(Message msg) {
-            // speak SMS here
-            try {
-                // MVS_HERE
-                // Get the SMS, possibly store it, speak it
-                //Think about the SMS list and how to use it.
-                // SMS_list ??? internal class ?
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                // Restore interrupt status.
-                Thread.currentThread().interrupt();
-            }
-            // Stop the service using the startId, so that we don't stop
-            // the service in the middle of handling another job
-            stopSelf(msg.arg1);
-        }
-    }
-
-    // MVS_NOT_USED
-    private TimerTask task = new TimerTask() {
-
-        @Override
-        public void run() {
-            // poll for something ...if needed
-            ;
-            // The polling that can result in sending notification from the TIMER TASK,
-            // task that runs in the background - may or not be used with SMS - for example
-            // to monitor queues and other resources that grow.
-            // The OTHER SOURCE of notifications IS THE SMS Broadcat receiver, which should
-            // NOTIFY THE SERVICE of a SMS message received. The message should be saved, queued
-            // to be spoken by the TTS Engine.
-        }
-    };
-
-    // Can this be used to process the SMS message received from the SMS broadcast receiver. It
-    // It should retrieve and process the SMS message.
-    private Handler handler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            notifyFromHandler((String) msg.getData().get(SMSReaderService.LOC), (String) msg.getData().get(
-                    SMSReaderService.ZIP));
-        }
-    };
-
     @Override
     public void onCreate() {
-        // Start up the thread running the service.  Note that we create a
-        // separate thread because the service normally runs in the process's
-        // main thread, which we don't want to block.  We also make it
-        // background priority so CPU-intensive work will not disrupt our UI.
-        Log.d("TTSRead", "SMSReaderService onCreate");
-        HandlerThread thread = new HandlerThread("ServiceStartArguments",
-                Process.THREAD_PRIORITY_BACKGROUND);
-        thread.start();
-
-        // Get the HandlerThread's Looper and use it for our Handler
-        mServiceLooper = thread.getLooper();
-        Log.d("TTSRead", "SMSReaderService NEW ServiceHandler");
-        mServiceHandler = new ServiceHandler(mServiceLooper);
-
-        // MVS_NOT USED
-        // timer = new Timer();
-        // timer.schedule(task, 5000, SMSReaderService.ALERT_POLL_INTERVAL);
+        super.onCreate();
+        Log.d(TAG, "SMSReaderService onCreate");
         nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-        /* instantiate the TTS ENGINE here ? */
-        //Log.d("TTSRead", "Create NEW TTS mTTS");
-        //mTTS = new TextToSpeech(getApplicationContext(), this);
-
+        // TextToSpeech initializes ASYNCHRONOUSLY. speak() will silently fail
+        // until onInit() reports SUCCESS, so anything that arrives before then
+        // is buffered in mPending and flushed from onInit().
+        mTTS = new TextToSpeech(this, this);
+        Log.d(TAG, "SMSReaderService mTTS = new TextToSpeech (waiting for onInit)");
     }
 
-    // This is the old onStart method that will be called on the pre-2.0
-    // platform.  On 2.0 or later we override onStartCommand() so this
-    // method will not be called.
-    @Override
-    public void onStart(Intent intent, int startId) {
-        super.onStart(intent, startId);
-        Toast.makeText(this, "service starting", Toast.LENGTH_SHORT).show();
-        Log.d("TTSRead", "SMSReaderService onStart");
-        // For each start request, send a message to start a job and deliver the
-        // start ID so we know which request we're stopping when we finish the job
-        Message msg = mServiceHandler.obtainMessage();
-        msg.arg1 = startId;
-        mServiceHandler.sendMessage(msg);
-        return;
-    }
-
-    // This is the Service entry point. To speak a text string,
-    // call the service startService with an intent that carries
-    // the text string.
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Toast.makeText(this, "service starting", Toast.LENGTH_SHORT).show();
-        Log.d("TTSRead", "SMSReaderService onStartCommand: " + String.valueOf(startId));
-        // For each start request, send a message to start a job and deliver the
-        // start ID so we know which request we're stopping when we finish the job
+        Log.d(TAG, "SMSReaderService onStartCommand: " + startId);
 
-        // Foreground
+        // A service started with startForegroundService() MUST call
+        // startForeground() promptly. Do it on every start so the service
+        // stays a foreground, "always available" service.
+        startForeground(FOREGROUND_ID, buildNotification());
+
+        if (intent != null) {
+            speakMessagesFromIntent(intent);
+        }
+
+        // START_STICKY + no stopSelf(): the service keeps running so the TTS
+        // engine stays initialized and ready for the next SMS.
+        return START_STICKY;
+    }
+
+    private Notification buildNotification() {
         Intent notificationIntent = new Intent(this, ConfigureCom.class);
-        PendingIntent pendingIntent =
-                PendingIntent.getActivity(this, 0, notificationIntent, 0);
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            piFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, piFlags);
 
-        //Notification notification =
-        //        new Builder(this, CHANNEL_DEFAULT_IMPORTANCE)
-        //                .setContentTitle(getText(R.string.notification_title))
-        //                .setContentText(getText(R.string.notification_message))
-        //                .setSmallIcon(R.drawable.chat)
-        //                .setContentIntent(pendingIntent)
-        //                .setTicker(getText(R.string.ticker_text))
-        //                .build();
+        return new NotificationCompat.Builder(this, myNotifChan.CHANNEL_ID)
+                .setContentTitle("SMS Reader Service")
+                .setContentText("Listening for SMS...")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+    }
 
-        //MVS_HERE_TO_DO_Feb4
-        // Get the SMS MessageS from the intent
-        Bundle svcBundle;
-        svcBundle = intent.getExtras();
-        if(svcBundle != null) {
-            SmsMessage smsMessage;
-            if (Build.VERSION.SDK_INT >= 19) { //KITKAT
-                SmsMessage[] msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent);
-                // MVS_TO_DO ??? are there more than one message" if yes process them all
-                // part of message queueing design
-                smsMessage = msgs[0];
-                Log.d("TTSRead", "LG19SVC Address: " + smsMessage.getDisplayOriginatingAddress());
-                Log.d("TTSRead", "LG19SCV Message: " + smsMessage.getDisplayMessageBody());
-            } else {
-                Object[] pdus = (Object[]) svcBundle.get("pdus");
-                for (Object pdu : pdus) {
-                    smsMessage = SmsMessage.createFromPdu((byte[]) pdu);
-                    //ReadTextApp.setOriginatingAddress(smsMessage.getDisplayOriginatingAddress());
-                    //ReadTextApp.setTextMessage(smsMessage.getDisplayMessageBody());
-                    Log.d("TTSRead", "Address: " + smsMessage.getDisplayOriginatingAddress());
-                    Log.d("TTSRead", "Message: " + smsMessage.getDisplayMessageBody());
+    private void speakMessagesFromIntent(Intent intent) {
+        SmsMessage[] msgs = Telephony.Sms.Intents.getMessagesFromIntent(intent);
+        if (msgs == null || msgs.length == 0) {
+            Log.d(TAG, "onStartCommand: no SMS messages in intent");
+            return;
+        }
+
+        // A single SMS can arrive as several PDUs (multipart). Re-assemble the
+        // body per originating address, preserving arrival order.
+        Map<String, StringBuilder> bySender = new LinkedHashMap<>();
+        for (SmsMessage sms : msgs) {
+            if (sms == null) continue;
+            String from = sms.getDisplayOriginatingAddress();
+            String part = sms.getMessageBody();
+            if (part == null) part = sms.getDisplayMessageBody();
+            if (from == null) from = "";
+            StringBuilder sb = bySender.get(from);
+            if (sb == null) {
+                sb = new StringBuilder();
+                bySender.put(from, sb);
+            }
+            if (part != null) sb.append(part);
+        }
+
+        for (Map.Entry<String, StringBuilder> e : bySender.entrySet()) {
+            String body = e.getValue().toString();
+            String caller = lookupCallerName(e.getKey());
+            Log.d(TAG, "Received SMS from " + e.getKey() + " (" + caller + "): " + body);
+            // Speak the caller's name first, then the message body.
+            speakOrQueue(caller);
+            speakOrQueue(body);
+        }
+    }
+
+    /**
+     * Resolves an originating phone number to a contact display name, falling
+     * back to "unknown" when there is no address, no matching contact, or the
+     * READ_CONTACTS permission has not been granted.
+     */
+    private String lookupCallerName(String address) {
+        if (TextUtils.isEmpty(address)) {
+            return "unknown";
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG, "READ_CONTACTS not granted, cannot resolve caller name");
+            return "unknown";
+        }
+
+        Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(address));
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri,
+                    new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME},
+                    null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                if (!TextUtils.isEmpty(name)) {
+                    return name;
                 }
             }
+            Log.d(TAG, "No contact matched " + address + ", speaking \"unknown\"");
+        } catch (Exception ex) {
+            Log.e(TAG, "Contact lookup failed for " + address, ex);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
         }
-        else {
-            Log.d("TTSRead", "NULL svcBundle");
+        return "unknown";
+    }
+
+    private void speakOrQueue(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return;
         }
-
-        //return START_STICKY;
-
-        // Bundle.get("pdus), it is possible that each pdu is a different SMS !!!!????
-        // For each pdu one creates a SMS Message: Originating Address / MessageBody
-        //???? Should each SMS be sent in a ServiceHandler Message or SMSs be sent packed ????
-        //???? should the SMSs be queued here ?
-        // Analize Service Handler and see if it can handle multiple messages,
-        // Otherwise have a queue either here or in the Service handler.
-        //
-        //
-        //
-        // OLD text:
-        // and put it the handler message
-        // Think to save the SMS in a list and how to use the list
-        // the SMS passed in the handler message is to be spoken in the
-        // handler thread.
-
-        //Message msg = mServiceHandler.obtainMessage();
-        //msg.arg1 = startId;
-        //mServiceHandler.sendMessage(msg);
-        return START_STICKY;
-        // configure and start the TTS ENGINE here ????????
+        synchronized (mPending) {
+            if (mTtsReady && mTTS != null) {
+                int r = mTTS.speak(text, TextToSpeech.QUEUE_ADD, null, "sms");
+                Log.d(TAG, "mTTS.speak returned " + r + " for: " + text);
+            } else {
+                Log.d(TAG, "TTS not ready yet, queueing: " + text);
+                mPending.add(text);
+            }
+        }
     }
 
     @Override
     public void onInit(int status) {
-        Log.d("TTSRead", "TTSService onInit: " + String.valueOf(status));
-        if (status == TextToSpeech.SUCCESS) {
-            int result = mTTS.setLanguage(Locale.US);
-            if (result == TextToSpeech.LANG_MISSING_DATA ||
-                    result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                // Language data is missing or the language is not supported.
-                Toast.makeText(this, "Language NOT OK", Toast.LENGTH_SHORT).show();
-                Log.d("TTSRead", "TTSService init NOT OK");
+        if (status != TextToSpeech.SUCCESS) {
+            Log.e(TAG, "TextToSpeech init FAILED, status=" + status);
+            return;
+        }
+        int langResult = mTTS.setLanguage(Locale.US);
+        if (langResult == TextToSpeech.LANG_MISSING_DATA
+                || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+            Log.e(TAG, "TextToSpeech: US English not available (" + langResult + ")");
+            return;
+        }
 
-            } else {
-                Toast.makeText(this, "Language OK", Toast.LENGTH_SHORT).show();
-                Log.d("TTSRead", "TTSService init OK");
-                mTTS.speak("T T S version 3 initialized", TextToSpeech.QUEUE_ADD, null);
+        synchronized (mPending) {
+            mTtsReady = true;
+            Log.d(TAG, "TextToSpeech ready, flushing " + mPending.size() + " queued message(s)");
+            for (String t : mPending) {
+                mTTS.speak(t, TextToSpeech.QUEUE_ADD, null, "sms");
             }
+            mPending.clear();
         }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        mTTS.shutdown();
-        Log.d("TTSRead", "Destroy");
+        if (mTTS != null) {
+            mTTS.stop();
+            mTTS.shutdown();
+            mTTS = null;
+        }
+        mTtsReady = false;
+        Log.d(TAG, "SMSReaderService onDestroy");
     }
 
     @Override
     public IBinder onBind(Intent intent) {
-        Log.d("TTSRead", "SMSReaderService onBind");
         return binder;
-    }
-
-    /** Temporary TEST only method for clients */
-    public int getRandomNumber() {
-        return mGenerator.nextInt(100);
-    }
-
-    // Could this be used to send the TextMessage in the Service Handler ????
-    private void sendNotification(String zip, String someString) {
-        Message message = Message.obtain();
-        Bundle bundle = new Bundle();
-        bundle.putString(SMSReaderService.ZIP, zip);
-        bundle.putString(SMSReaderService.LOC, someString);
-        message.setData(bundle);
-        handler.sendMessage(message);
-    }
-
-    // This should Notify the User in the UI and enable the User to react: skip, stop the current
-    // reading, repeat the reading of the message.
-    private void notifyFromHandler(String location, String zip) {
-
-        final Notification n = new Notification(R.drawable.chat, "SMS", System
-                .currentTimeMillis());
-        nm.notify(Integer.parseInt(zip), n);
     }
 }
